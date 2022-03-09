@@ -5,16 +5,19 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -225,6 +228,18 @@ func installPlugins(wsInfo *supervisor.WorkspaceInfoResponse) error {
 	if len(plugins) <= 0 {
 		return nil
 	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	outC := make(chan string)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		outC <- buf.String()
+	}()
 
 	var args []string
 	args = append(args, "installPlugins")
@@ -232,10 +247,24 @@ func installPlugins(wsInfo *supervisor.WorkspaceInfoResponse) error {
 	args = append(args, plugins...)
 	cmd := exec.Command(RemoteDevServer, args...)
 	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
-	err = cmd.Run()
-	if err != nil {
-		return errors.New("failed to install repo plugins: " + err.Error())
+	cmd.Stdout = io.MultiWriter(w, os.Stdout)
+	installErr := cmd.Run()
+
+	// delete alien_plugins.txt to suppress 3rd-party plugins consent on startup to workaround backend startup freeze
+	w.Close()
+	out := <-outC
+	configR := regexp.MustCompile("IDE config directory: (\\S+)\n")
+	matches := configR.FindStringSubmatch(out)
+	if len(matches) == 2 {
+		configDir := matches[1]
+		err := os.Remove(configDir + "/alien_plugins.txt")
+		if err != nil {
+			log.WithError(err).Error("failed to suppress 3rd-party plugins consent")
+		}
+	}
+
+	if installErr != nil {
+		return errors.New("failed to install repo plugins: " + installErr.Error())
 	}
 	return nil
 }
