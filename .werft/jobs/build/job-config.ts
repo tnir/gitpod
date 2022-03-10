@@ -1,4 +1,3 @@
-import { config } from "process";
 import { exec } from "../../util/shell";
 import { Werft } from "../../util/werft";
 
