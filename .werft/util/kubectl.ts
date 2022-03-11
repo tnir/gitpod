@@ -248,13 +248,13 @@ interface Pod {
     phase: string
 }
 
-export async function waitUntilAllPodsAreReady(namespace: string, shellOpts: ExecOptions) {
+export async function waitUntilAllPodsAreReady(kubeconfigPath: string, namespace: string, shellOpts: ExecOptions) {
     const werft = getGlobalWerftInstance();
     werft.log(shellOpts.slice, `Waiting until all pods in namespace ${namespace} are Running/Succeeded/Completed.`)
     for (let i = 0; i < 200; i++) {
         let pods: Pod[]
         try {
-            pods = getPods(namespace)
+            pods = getPods(kubeconfigPath, namespace)
         } catch (err) {
             werft.log(shellOpts.slice, err)
             continue
@@ -280,12 +280,12 @@ export async function waitUntilAllPodsAreReady(namespace: string, shellOpts: Exe
 
         await sleep(3 * 1000)
     }
-    exec(`kubectl get pods -n ${namespace}`, { ...shellOpts, async: false })
+    exec(`kubectl get pods --kubeconfig ${kubeconfigPath} -n ${namespace}`, { ...shellOpts, async: false })
     throw new Error(`Not all pods in namespace ${namespace} transitioned to 'Running' or 'Succeeded/Completed' during the expected time.`)
 }
 
-function getPods(namespace: string): Pod[] {
-    const cmd = `kubectl get pods -n ${namespace}  -o=jsonpath='{range .items[*]}{@.metadata.name}:{@.metadata.ownerReferences[0].kind}:{@.status.phase};{end}'`
+function getPods(kubeconfigPath: string, namespace: string): Pod[] {
+    const cmd = `kubectl get pods --kubeconfig ${kubeconfigPath} -n ${namespace}  -o=jsonpath='{range .items[*]}{@.metadata.name}:{@.metadata.ownerReferences[0].kind}:{@.status.phase};{end}'`
     const unsanitizedPods = exec(cmd, { silent: true, async: false, dontCheckRc: true });
     if (unsanitizedPods.code != 0) {
         throw new Error(`"${cmd}" failed with code ${unsanitizedPods.code}; stdout: ${unsanitizedPods.stdout}; stderr: ${unsanitizedPods.stderr}`)
@@ -298,11 +298,11 @@ function getPods(namespace: string): Pod[] {
         .map(s => { const i = s.split(":"); return { name: i[0], owner: i[1], phase: i[2] } })
 }
 
-export async function waitForApiserver(shellOpts: ExecOptions) {
+export async function waitForApiserver(kubeconfigPath: string, shellOpts: ExecOptions) {
     const werft = getGlobalWerftInstance();
     for (let i = 0; i < 300; i++) {
         werft.log(shellOpts.slice, 'Checking that k3s apiserver is ready...')
-        const result = exec(`kubectl get --raw='/readyz?verbose'`, { ...shellOpts, dontCheckRc: true, async: false });
+        const result = exec(`kubectl --kubeconfig ${kubeconfigPath} get --raw='/readyz?verbose'`, { ...shellOpts, dontCheckRc: true, async: false });
         if (result.code == 0) {
             werft.log(shellOpts.slice, 'k3s apiserver is ready')
             return;

@@ -6,8 +6,8 @@ import * as fs from 'fs';
 /**
  * Monitoring satellite deployment bits
  */
- export class InstallMonitoringSatelliteParams {
-    pathToKubeConfig: string
+export class InstallMonitoringSatelliteParams {
+    kubeconfigPath: string
     satelliteNamespace: string
     clusterName: string
     nodeExporterPort: number
@@ -26,19 +26,19 @@ export async function installMonitoringSatellite(params: InstallMonitoringSatell
     const werft = getGlobalWerftInstance()
 
     werft.log(sliceName, `Cloning observability repository - Branch: ${params.branch}`)
-    exec(`git clone --branch ${params.branch} https://roboquat:$(cat /mnt/secrets/monitoring-satellite-preview-token/token)@github.com/gitpod-io/observability.git`, {silent: true})
-    let currentCommit = exec(`git rev-parse HEAD`, {silent: true}).stdout.trim()
-    let pwd = exec(`pwd`, {silent: true}).stdout.trim()
+    exec(`git clone --branch ${params.branch} https://roboquat:$(cat /mnt/secrets/monitoring-satellite-preview-token/token)@github.com/gitpod-io/observability.git`, { silent: true })
+    let currentCommit = exec(`git rev-parse HEAD`, { silent: true }).stdout.trim()
+    let pwd = exec(`pwd`, { silent: true }).stdout.trim()
     werft.log(sliceName, `Updating Gitpod's mixin in monitoring-satellite's jsonnetfile.json to latest commit SHA: ${currentCommit}`);
 
     let jsonnetFile = JSON.parse(fs.readFileSync(`${pwd}/observability/jsonnetfile.json`, 'utf8'));
     jsonnetFile.dependencies.forEach(dep => {
-        if(dep.name == 'gitpod') {
+        if (dep.name == 'gitpod') {
             dep.version = currentCommit
         }
     });
     fs.writeFileSync(`${pwd}/observability/jsonnetfile.json`, JSON.stringify(jsonnetFile));
-    exec(`cd observability && jb update`, {slice: sliceName})
+    exec(`cd observability && jb update`, { slice: sliceName })
 
     let jsonnetRenderCmd = `cd observability && jsonnet -c -J vendor -m monitoring-satellite/manifests \
     --ext-code config="{
@@ -52,7 +52,7 @@ export async function installMonitoringSatellite(params: InstallMonitoringSatell
             domain: '${params.previewDomain}',
             nodeExporterPort: ${params.nodeExporterPort},
         },
-        ${params.withVM ? '' : "nodeAffinity: { nodeSelector: { 'gitpod.io/workload_services': 'true' }, },"  }
+        ${params.withVM ? '' : "nodeAffinity: { nodeSelector: { 'gitpod.io/workload_services': 'true' }, },"}
         stackdriver: {
             defaultProject: '${params.stackdriverServiceAccount.project_id}',
             clientEmail: '${params.stackdriverServiceAccount.client_email}',
@@ -68,46 +68,67 @@ export async function installMonitoringSatellite(params: InstallMonitoringSatell
     find monitoring-satellite/manifests -type f ! -name '*.yaml' ! -name '*.jsonnet'  -delete`
 
     werft.log(sliceName, 'rendering YAML files')
-    exec(jsonnetRenderCmd, {silent: true})
-    if(params.withVM) {
+    exec(jsonnetRenderCmd, { silent: true })
+    if (params.withVM) {
         postProcessManifests()
     }
 
     // The correct kubectl context should already be configured prior to this step
     // Only checks node-exporter readiness for harvester
-    ensureCorrectInstallationOrder(params.satelliteNamespace, params.withVM)
+    ensureCorrectInstallationOrder(params.kubeconfigPath, params.satelliteNamespace, params.withVM)
 }
 
-async function ensureCorrectInstallationOrder(namespace: string, checkNodeExporterStatus: boolean){
+async function ensureCorrectInstallationOrder(kubeconfigPath: string, namespace: string, checkNodeExporterStatus: boolean) {
     const werft = getGlobalWerftInstance()
 
     werft.log(sliceName, 'installing monitoring-satellite')
-    exec('cd observability && hack/deploy-satellite.sh', {slice: sliceName})
+    const cmd = `cd observability && \
+        kubectl --kubeconfig ${kubeconfigPath} --server-side apply -f monitoring-satellite/manifests/namespace.yaml && \
+        kubectl --kubeconfig ${kubeconfigPath} --server-side apply -f monitoring-satellite/manifests/podsecuritypolicy-restricted.yaml && \
+        for CRD in $(find monitoring-satellite/manifests/prometheusOperator/ -type f -name "*CustomResourceDefinition.yaml");
+        do
+            kubectl --kubeconfig ${kubeconfigPath} --server-side apply -f $CRD
+        done && \
+        until kubectl --kubeconfig ${kubeconfigPath} get servicemonitors.monitoring.coreos.com --all-namespaces ; do date; sleep 1; echo ""; done && \
+        until kubectl --kubeconfig ${kubeconfigPath} get prometheusrules.monitoring.coreos.com --all-namespaces ; do date; sleep 1; echo ""; done && \
+        for operatorManifest in $(find monitoring-satellite/manifests/prometheusOperator/ -type f ! -name "*CustomResourceDefinition.yaml");
+        do
+            kubectl --kubeconfig ${kubeconfigPath} --server-side apply -f $operatorManifest
+        done && \
+        kubectl --kubeconfig ${kubeconfigPath} --server-side apply -f monitoring-satellite/manifests/prometheus/ && \
+        kubectl --kubeconfig ${kubeconfigPath} --server-side apply -f monitoring-satellite/manifests/nodeExporter/ && \
+        kubectl --kubeconfig ${kubeconfigPath} --server-side apply -f monitoring-satellite/manifests/kubernetesControlPlane/ && \
+        kubectl --kubeconfig ${kubeconfigPath} --server-side apply -f monitoring-satellite/manifests/kubeStateMetrics/ && \
+        kubectl --kubeconfig ${kubeconfigPath} --server-side apply -f monitoring-satellite/manifests/grafana/ && \
+        kubectl --kubeconfig ${kubeconfigPath} --server-side apply -f monitoring-satellite/manifests/alertmanager/ && \
+        kubectl --kubeconfig ${kubeconfigPath} --server-side apply -f monitoring-satellite/manifests/otelCollector/`
+    exec(cmd, { slice: sliceName })
 
-    deployGitpodServiceMonitors()
-    checkReadiness(namespace, checkNodeExporterStatus)
+
+    deployGitpodServiceMonitors(kubeconfigPath)
+    checkReadiness(kubeconfigPath, namespace, checkNodeExporterStatus)
 }
 
-async function checkReadiness(namespace: string, checkNodeExporterStatus: boolean) {
+async function checkReadiness(kubeconfigPath: string, namespace: string, checkNodeExporterStatus: boolean) {
     // For some reason prometheus' statefulset always take quite some time to get created
     // Therefore we wait a couple of seconds
-    exec(`sleep 30 && kubectl rollout status -n ${namespace} statefulset prometheus-k8s`, {slice: sliceName, async: true})
-    exec(`kubectl rollout status -n ${namespace} deployment grafana`, {slice: sliceName, async: true})
-    exec(`kubectl rollout status -n ${namespace} deployment kube-state-metrics`, {slice: sliceName, async: true})
-    exec(`kubectl rollout status -n ${namespace} deployment otel-collector`, {slice: sliceName, async: true})
+    exec(`sleep 30 && kubectl --kubeconfig ${kubeconfigPath} rollout status -n ${namespace} statefulset prometheus-k8s`, { slice: sliceName, async: true })
+    exec(`kubectl --kubeconfig ${kubeconfigPath} rollout status -n ${namespace} deployment grafana`, { slice: sliceName, async: true })
+    exec(`kubectl --kubeconfig ${kubeconfigPath} rollout status -n ${namespace} deployment kube-state-metrics`, { slice: sliceName, async: true })
+    exec(`kubectl --kubeconfig ${kubeconfigPath} rollout status -n ${namespace} deployment otel-collector`, { slice: sliceName, async: true })
 
     // core-dev is just too unstable for node-exporter
     // we don't guarantee that it will run at all
-    if(checkNodeExporterStatus) {
-        exec(`kubectl rollout status -n ${namespace} daemonset node-exporter`, {slice: sliceName, async: true})
+    if (checkNodeExporterStatus) {
+        exec(`kubectl rollout status -n ${namespace} daemonset node-exporter`, { slice: sliceName, async: true })
     }
 }
 
-async function deployGitpodServiceMonitors() {
+async function deployGitpodServiceMonitors(kubeconfigPath: string) {
     const werft = getGlobalWerftInstance()
 
     werft.log(sliceName, 'installing gitpod ServiceMonitor resources')
-    exec('kubectl apply -f observability/monitoring-satellite/manifests/gitpod/', {silent: true})
+    exec('kubectl --kubeconfig ${kubeconfigPath} apply -f observability/monitoring-satellite/manifests/gitpod/', { silent: true })
 }
 
 function postProcessManifests() {

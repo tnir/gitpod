@@ -6,7 +6,7 @@ import { InstallMonitoringSatelliteParams, installMonitoringSatellite } from '..
 import { wipeAndRecreateNamespace, setKubectlContextNamespace, deleteNonNamespaceObjects, findFreeHostPorts, createNamespace, helmInstallName, findLastHostPort, waitUntilAllPodsAreReady, waitForApiserver } from '../../util/kubectl';
 import { issueCertficate, installCertficate, IssueCertificateParams, InstallCertificateParams } from '../../util/certs';
 import { sleep, env } from '../../util/util';
-import { GCLOUD_SERVICE_ACCOUNT_PATH } from "./const";
+import { GCLOUD_SERVICE_ACCOUNT_PATH, K3S_KUBECONFIG_PATH } from "./const";
 import { Werft } from "../../util/werft";
 import { JobConfig } from "./job-config";
 import * as VM from '../../vm/vm'
@@ -75,7 +75,7 @@ export async function deployToPreviewEnvironment(werft: Werft, jobConfig: JobCon
     const url = `https://${domain}`;
     const imagePullAuth = exec(`printf "%s" "_json_key:$(kubectl get secret ${IMAGE_PULL_SECRET_NAME} --namespace=keys -o yaml \
         | yq r - data['.dockerconfigjson'] \
-        | base64 -d)" | base64 -w 0`, { silent: true}).stdout.trim();
+        | base64 -d)" | base64 -w 0`, { silent: true }).stdout.trim();
 
     const sweeperImage = exec(`tar xfO /tmp/dev.tar.gz ./sweeper.txt`).stdout.trim();
 
@@ -119,22 +119,19 @@ export async function deployToPreviewEnvironment(werft: Werft, jobConfig: JobCon
         werft.done(vmSlices.START_KUBECTL_PORT_FORWARDS)
 
         werft.log(vmSlices.KUBECONFIG, 'Copying k3s kubeconfig')
-        VM.copyk3sKubeconfig({ name: destname, path: 'k3s.yml', timeoutMS: 1000 * 60 * 3, slice: vmSlices.KUBECONFIG })
-        // NOTE: This was a quick have to override the existing kubeconfig so all future kubectl commands use the k3s cluster.
-        //       We might want to keep both kubeconfigs around and be explicit about which one we're using.s
-        exec(`mv k3s.yml /home/gitpod/.kube/config`)
+        VM.copyk3sKubeconfig({ name: destname, path: K3S_KUBECONFIG_PATH, timeoutMS: 1000 * 60 * 3, slice: vmSlices.KUBECONFIG })
         werft.done(vmSlices.KUBECONFIG)
 
         werft.log(vmSlices.WAIT_K3S, 'Wait for k3s')
-        await waitForApiserver({ slice:vmSlices.WAIT_K3S })
-        await waitUntilAllPodsAreReady("kube-system", { slice:vmSlices.WAIT_K3S } )
+        await waitForApiserver(K3S_KUBECONFIG_PATH, { slice: vmSlices.WAIT_K3S })
+        await waitUntilAllPodsAreReady(K3S_KUBECONFIG_PATH, "kube-system", { slice: vmSlices.WAIT_K3S })
         werft.done(vmSlices.WAIT_K3S)
 
         werft.log(vmSlices.WAIT_CERTMANAGER, 'Wait for Cert-Manager')
-        await waitUntilAllPodsAreReady("cert-manager", { slice:vmSlices.WAIT_CERTMANAGER } )
+        await waitUntilAllPodsAreReady(K3S_KUBECONFIG_PATH, "cert-manager", { slice: vmSlices.WAIT_CERTMANAGER })
         werft.done(vmSlices.WAIT_CERTMANAGER)
 
-        exec(`kubectl apply -f clouddns-dns01-solver-svc-acct.yaml -f letsencrypt-issuer.yaml`, { slice: vmSlices.INSTALL_LETS_ENCRYPT_ISSUER, dontCheckRc: true })
+        exec(`kubectl apply --kubeconfig ${K3S_KUBECONFIG_PATH} -f clouddns-dns01-solver-svc-acct.yaml -f letsencrypt-issuer.yaml`, { slice: vmSlices.INSTALL_LETS_ENCRYPT_ISSUER, dontCheckRc: true })
         werft.done(vmSlices.INSTALL_LETS_ENCRYPT_ISSUER)
 
         VM.installFluentBit({ namespace: 'default', slice: vmSlices.EXTERNAL_LOGGING })
@@ -143,7 +140,7 @@ export async function deployToPreviewEnvironment(werft: Werft, jobConfig: JobCon
 
         issueMetaCerts(werft, PROXY_SECRET_NAME, "default", domain, withVM)
         werft.done('certificate')
-        installMonitoring(deploymentConfig.namespace, 9100, deploymentConfig.domain, STACKDRIVER_SERVICEACCOUNT, withVM, jobConfig.observability.branch);
+        installMonitoring(K3S_KUBECONFIG_PATH, deploymentConfig.namespace, 9100, deploymentConfig.domain, STACKDRIVER_SERVICEACCOUNT, withVM, jobConfig.observability.branch);
         werft.done('observability')
     }
 
@@ -315,21 +312,17 @@ async function deployToDevWithInstaller(werft: Werft, jobConfig: JobConfig, depl
             exec(`yq w -i config.yaml analytics.writer ${deploymentConfig.analytics!}`, { slice: installerSlices.INSTALLER_RENDER });
         }
 
-        if (withVM || withObservability) {
+        if (withObservability) {
             // TODO: there's likely more to do...
             const tracingEndpoint = exec(`yq r ./.werft/jobs/build/helm/values.tracing.yaml tracing.endpoint`, { slice: installerSlices.INSTALLER_RENDER }).stdout.trim();
             exec(`yq w -i config.yaml observability.tracing.endpoint ${tracingEndpoint}`, { slice: installerSlices.INSTALLER_RENDER });
 
-            // If the preview is running on Harvester, we've already deployed monitoring-satellite during 'VM' phase.
-            // Therefore, we want to skip installing it here.
-            if(!withVM) {
-                try {
-                    installMonitoring(deploymentConfig.namespace, nodeExporterPort, monitoringDomain, STACKDRIVER_SERVICEACCOUNT, withVM, jobConfig.observability.branch);
-                } catch (err) {
-                    werft.fail('observability', err)
-                } finally {
-                    werft.done('observability')
-                }
+            try {
+                installMonitoring("/home/gitpod/.kube/config", deploymentConfig.namespace, nodeExporterPort, monitoringDomain, STACKDRIVER_SERVICEACCOUNT, withVM, jobConfig.observability.branch);
+            } catch (err) {
+                werft.fail('observability', err)
+            } finally {
+                werft.done('observability')
             }
         }
 
@@ -448,7 +441,7 @@ async function deployToDevWithInstaller(werft: Werft, jobConfig: JobConfig, depl
     }
 
     werft.log(installerSlices.DEPLOYMENT_WAITING, "Waiting until all pods are ready.");
-    await waitUntilAllPodsAreReady(deploymentConfig.namespace, { slice: installerSlices.DEPLOYMENT_WAITING })
+    await waitUntilAllPodsAreReady(`${withVM ? K3S_KUBECONFIG_PATH : "/home/gitpod/.kube/config"}`, deploymentConfig.namespace, { slice: installerSlices.DEPLOYMENT_WAITING })
     werft.done(installerSlices.DEPLOYMENT_WAITING);
 
     await addDNSRecord(werft, deploymentConfig.namespace, deploymentConfig.domain, !withVM)
@@ -592,7 +585,7 @@ async function deployToDevWithHelm(werft: Werft, jobConfig: JobConfig, deploymen
     werft.log(`observability`, "Installing monitoring-satellite...")
     if (deploymentConfig.withObservability) {
         try {
-            await installMonitoring(namespace, nodeExporterPort, monitoringDomain, STACKDRIVER_SERVICEACCOUNT, false, jobConfig.observability.branch);
+            await installMonitoring("/home/gitpod/.kube/config", namespace, nodeExporterPort, monitoringDomain, STACKDRIVER_SERVICEACCOUNT, false, jobConfig.observability.branch);
         } catch (err) {
             if (!jobConfig.mainBuild) {
                 werft.fail('observability', err);
@@ -842,10 +835,10 @@ async function installMetaCertificates(werft: Werft, namespace: string) {
     await installCertficate(werft, metaInstallCertParams, metaEnv());
 }
 
-async function installMonitoring(namespace: string, nodeExporterPort: number, domain: string, stackdriverServiceAccount: any, withVM: boolean, observabilityBranch: string) {
+async function installMonitoring(kubeconfigPath: string, namespace: string, nodeExporterPort: number, domain: string, stackdriverServiceAccount: any, withVM: boolean, observabilityBranch: string) {
     const installMonitoringSatelliteParams = new InstallMonitoringSatelliteParams();
     installMonitoringSatelliteParams.branch = observabilityBranch;
-    installMonitoringSatelliteParams.pathToKubeConfig = ""
+    installMonitoringSatelliteParams.kubeconfigPath = kubeconfigPath
     installMonitoringSatelliteParams.satelliteNamespace = namespace
     installMonitoringSatelliteParams.clusterName = namespace
     installMonitoringSatelliteParams.nodeExporterPort = nodeExporterPort
