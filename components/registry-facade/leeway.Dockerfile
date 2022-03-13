@@ -6,9 +6,13 @@ FROM alpine:3.15
 
 # Ensure latest packages are present, like security updates.
 RUN  apk upgrade --no-cache \
-  && apk add --no-cache ca-certificates bash
+  && apk add --no-cache ca-certificates bash wget
 
 RUN apk add --no-cache kubectl --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing
+
+# script used to wait in the post start lifecycle
+RUN wget -q --output-document /usr/local/bin/wait-for https://raw.githubusercontent.com/eficode/wait-for/v2.2.3/wait-for \
+  && chmod +x /usr/local/bin/wait-for
 
 RUN adduser -S -D -H -h /app -u 1000 appuser
 COPY components-registry-facade--app/registry-facade /app/registry-facade

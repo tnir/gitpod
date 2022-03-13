@@ -6,9 +6,13 @@ FROM alpine:3.15
 
 # Ensure latest packages are present, like security updates.
 RUN  apk upgrade --no-cache \
-  && apk add --no-cache git bash openssh-client lz4 e2fsprogs
+  && apk add --no-cache git bash openssh-client lz4 e2fsprogs wget
 
 RUN apk add --no-cache kubectl --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing
+
+# script used to wait in the post start lifecycle
+RUN wget -q --output-document /usr/local/bin/wait-for https://raw.githubusercontent.com/eficode/wait-for/v2.2.3/wait-for \
+  && chmod +x /usr/local/bin/wait-for
 
 # Add gitpod user for operations (e.g. checkout because of the post-checkout hook!)
 # RUN addgroup -g 33333 gitpod \

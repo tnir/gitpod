@@ -18,6 +18,10 @@ RUN apk add --no-cache git git-lfs bash openssh-client lz4 e2fsprogs coreutils t
 
 RUN apk add --no-cache kubectl --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing
 
+# script used to wait in the post start lifecycle
+RUN wget -q --output-document /usr/local/bin/wait-for https://raw.githubusercontent.com/eficode/wait-for/v2.2.3/wait-for \
+  && chmod +x /usr/local/bin/wait-for
+
 COPY --from=dl /dl/runc.amd64 /usr/bin/runc
 
 # Add gitpod user for operations (e.g. checkout because of the post-checkout hook!)

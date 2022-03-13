@@ -263,7 +263,7 @@ fi
 					ProbeHandler: corev1.ProbeHandler{
 						HTTPGet: &corev1.HTTPGetAction{
 							Path: "/",
-							Port: intstr.IntOrString{IntVal: 9999},
+							Port: intstr.IntOrString{IntVal: ReadinessPort},
 						},
 					},
 					InitialDelaySeconds: 5,
@@ -274,7 +274,7 @@ fi
 					ProbeHandler: corev1.ProbeHandler{
 						HTTPGet: &corev1.HTTPGetAction{
 							Path: "/",
-							Port: intstr.IntOrString{IntVal: 9999},
+							Port: intstr.IntOrString{IntVal: ReadinessPort},
 						},
 					},
 					InitialDelaySeconds: 5,
@@ -288,7 +288,7 @@ fi
 					PostStart: &corev1.LifecycleHandler{
 						Exec: &corev1.ExecAction{
 							Command: []string{
-								"/bin/bash", "-c", `kubectl label --overwrite nodes ${NODENAME} gitpod.io/ws-daemon_ready_ns_${KUBE_NAMESPACE}=true`,
+								"/bin/bash", "-c", fmt.Sprintf(`wait-for http://localhost:%v/ready -- kubectl label --overwrite nodes ${NODENAME} gitpod.io/registry-facade_ready_ns_${KUBE_NAMESPACE}=true`, ReadinessPort),
 							},
 						},
 					},

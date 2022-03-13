@@ -7,19 +7,21 @@ package cmd
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"github.com/gitpod-io/gitpod/registry-facade/api/config"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/containerd/containerd/remotes"
 	"github.com/containerd/containerd/remotes/docker"
 	"github.com/docker/cli/cli/config/configfile"
+	"github.com/heptiolabs/healthcheck"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -27,8 +29,10 @@ import (
 	"golang.org/x/net/context"
 
 	common_grpc "github.com/gitpod-io/gitpod/common-go/grpc"
+	"github.com/gitpod-io/gitpod/common-go/kubernetes"
 	"github.com/gitpod-io/gitpod/common-go/log"
 	"github.com/gitpod-io/gitpod/common-go/pprof"
+	"github.com/gitpod-io/gitpod/registry-facade/api/config"
 	"github.com/gitpod-io/gitpod/registry-facade/pkg/registry"
 )
 
@@ -109,11 +113,34 @@ var runCmd = &cobra.Command{
 			return docker.NewResolver(resolverOpts)
 		}
 
+		if cfg.ReadinessProbeAddr != "" {
+			// use the first layer as source for the tests
+			if len(cfg.Registry.StaticLayer) < 1 {
+				log.Panic("the configuration file do not contain static layers")
+			}
+
+			staticLayerRef := cfg.Registry.StaticLayer[0].Ref
+			staticLayerHost := strings.Split(staticLayerRef, "/")[0]
+			// Ensure we can resolve DNS queries, can access gcr.io and the local Registry is up and running
+			health := healthcheck.NewHandler()
+			health.AddReadinessCheck("dns", kubernetes.DNSCanResolveProbe(staticLayerHost, 1*time.Second))
+			health.AddReadinessCheck("registry", kubernetes.NetworkIsReachableProbe(fmt.Sprintf("http://%v", staticLayerRef)))
+			health.AddLivenessCheck("dns", healthcheck.DNSResolveCheck(staticLayerHost, 1*time.Second))
+			health.AddLivenessCheck("registry", kubernetes.NetworkIsReachableProbe(fmt.Sprintf("http://%v", staticLayerRef)))
+
+			go func() {
+				if err := http.ListenAndServe(cfg.ReadinessProbeAddr, health); err != nil && err != http.ErrServerClosed {
+					log.WithError(err).Panic("error starting HTTP server")
+				}
+			}()
+		}
+
 		registryDoneChan := make(chan struct{})
 		reg, err := registry.NewRegistry(cfg.Registry, resolverProvider, prometheus.WrapRegistererWithPrefix("registry_", gpreg))
 		if err != nil {
 			log.WithError(err).Fatal("cannot create registry")
 		}
+
 		go watchConfig(configPath, reg)
 		go func() {
 			defer close(registryDoneChan)
@@ -143,7 +170,6 @@ func newDefaultTransport() *http.Transport {
 		IdleConnTimeout:       30 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 5 * time.Second,
-		DisableKeepAlives:     true,
 	}
 }
 
