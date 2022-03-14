@@ -386,24 +386,66 @@ export function PrebuildStatus(props: { prebuild: PrebuildWithStatus }) {
             );
             break;
         case "building":
-            return <img alt="" className="h-4 w-4" src={StatusRunning} />;
+            details = (
+                <div className="flex space-x-1 items-center text-gray-400">
+                    <img alt="" className="h-4 w-4 animate-spin" src={StatusRunning} />
+                    <span>Prebuild is currently in progress.</span>
+                </div>
+            );
+            break;
         case "aborted":
-            return <img alt="" className="h-4 w-4" src={StatusCanceled} />;
+            details = (
+                <div className="flex space-x-1 items-center text-gray-400">
+                    <img alt="" className="h-4 w-4 animate-spin" src={StatusCanceled} />
+                    <span>
+                        Prebuild has been cancelled. Either a user cancelled it, or the prebuild rate limit has been
+                        exceeded.
+                    </span>
+                </div>
+            );
+            break;
         case "failed":
-            return <img alt="" className="h-4 w-4" src={StatusFailed} />;
+            details = (
+                <div className="flex space-x-1 items-center text-gray-400">
+                    <img alt="" className="h-4 w-4 animate-spin" src={StatusFailed} />
+                    <span>Prebuild failed. Error: '${prebuild.error}'.</span>
+                </div>
+            );
+            break;
         case "timeout":
-            return <img alt="" className="h-4 w-4" src={StatusFailed} />;
+            details = (
+                <div className="flex space-x-1 items-center text-gray-400">
+                    <img alt="" className="h-4 w-4 animate-spin" src={StatusFailed} />
+                    <span>Prebuild timed out. Error: '${prebuild.error}'.</span>
+                </div>
+            );
+            break;
         case "available":
             if (prebuild?.error) {
-                return <img alt="" className="h-4 w-4" src={StatusFailed} />;
+                details = (
+                    <div className="flex space-x-1 items-center text-gray-400">
+                        <img alt="" className="h-4 w-4 animate-spin" src={StatusFailed} />
+                        <span>Prebuild failed. Error: '${prebuild.error}'.</span>
+                    </div>
+                );
+                break;
             }
-            return <img alt="" className="h-4 w-4" src={StatusDone} />;
+
+            details = (
+                <div className="flex space-x-1 items-center text-gray-400">
+                    <img alt="" className="h-4 w-4 animate-spin" src={StatusFailed} />
+                    <span>Prebuild failed. Error: '${prebuild.error}'.</span>
+                </div>
+            );
+            break;
     }
 
-    <div className="flex flex-col space-y-1 justify-center text-sm font-semibold">
-        <div>{status}</div>
-        <div>{details}</div>
-    </div>;
+    return (
+        <div className="flex flex-col space-y-1 justify-center text-sm font-semibold">
+            <div>{status}</div>
+            <div>{details}</div>
+        </div>
+    );
 }
 
 export function PrebuildInstanceStatus(props: { prebuildInstance?: WorkspaceInstance; prebuild?: PrebuildWithStatus }) {
