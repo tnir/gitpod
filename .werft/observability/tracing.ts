@@ -10,7 +10,7 @@ import { CollectorTraceExporter } from "@opentelemetry/exporter-collector-grpc";
  *
  * Registers a beforeExit event handler to gracefully flush traces upon exit.
  */
-export async function initialize() {
+export async function initialize(): Promise<NodeSDK> {
 
     const metadata = new Metadata()
     metadata.set('x-honeycomb-team', process.env.HONEYCOMB_API_KEY);
@@ -28,10 +28,6 @@ export async function initialize() {
         traceExporter,
         instrumentations: [getNodeAutoInstrumentations()]
     });
-
-    sdk.addResource(new Resource({
-        "mads.testing": "a testing value"
-    }))
 
     console.log('Initializing tracing')
     try {
@@ -54,4 +50,6 @@ export async function initialize() {
             console.log(`[${sliceID}] About to exit with code ${code}. Traces already flushed, no further action needed.`)
         }
     })
+
+    return sdk
 }

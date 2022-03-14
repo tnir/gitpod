@@ -1,6 +1,8 @@
 import { exec } from "../../util/shell";
 import { Werft } from "../../util/werft";
 import { previewNameFromBranchName } from "../../util/preview";
+import { NodeSDK } from "@opentelemetry/sdk-node";
+import { Resource } from '@opentelemetry/resources';
 
 export interface JobConfig {
     analytics: string
@@ -48,7 +50,7 @@ export interface Observability {
     branch: string
 }
 
-export function jobConfig(werft: Werft, context: any): JobConfig {
+export function jobConfig(werft: Werft, context: any, sdk: NodeSDK): JobConfig {
     const version = parseVersion(context)
     const repo = `${context.Repository.host}/${context.Repository.owner}/${context.Repository.repo}`;
     const mainBuild = repo === "github.com/gitpod-io/gitpod" && context.Repository.ref.includes("refs/heads/main");
@@ -136,11 +138,14 @@ export function jobConfig(werft: Werft, context: any): JobConfig {
     }
 
     werft.log("job config", JSON.stringify(jobConfig));
-    werft.rootSpan.setAttributes(Object.fromEntries(Object.entries(jobConfig).map((kv) => {
+    const globalAttributes = Object.fromEntries(Object.entries(jobConfig).map((kv) => {
         const [key, value] = kv
         return [`werft.job.config.${key}`, value]
-    })))
-    werft.rootSpan.setAttribute('werft.job.config.branch', context.Repository.ref)
+    }))
+    globalAttributes['werft.job.config.branch'] = context.Repository.ref
+
+    sdk.addResource(new Resource(globalAttributes))
+
     return jobConfig
 }
 
