@@ -29,6 +29,8 @@ export async function initialize() {
         instrumentations: [getNodeAutoInstrumentations()]
     });
 
+    traceExporter.attributes["mads.testing"] = "a testing value"
+
     console.log('Initializing tracing')
     try {
         await sdk.start()
