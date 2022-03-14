@@ -527,9 +527,17 @@ export class WorkspaceStarter {
         const configuration: WorkspaceInstanceConfiguration = {
             ideImage: ideConfig.ideOptions.options[ideConfig.ideOptions.defaultIde].image,
             supervisorImage: ideConfig.supervisorImage,
+            latestWarning: false,
         };
 
+        function shouldDisplayLatestWarning(ide?: string, desktopIde?: string, useLatest?: boolean) {
+            const useLatestJetBrainsDesktop = useLatest && !desktopIde?.startsWith("code");
+            const useBrowserInsiders = ide === "code-latest";
+            return useLatestJetBrainsDesktop || useBrowserInsiders;
+        }
+
         const ideChoice = user.additionalData?.ideSettings?.defaultIde;
+        const useLatest = !!user.additionalData?.ideSettings?.useLatestVersion;
         if (!!ideChoice) {
             const mappedImage = ideConfig.ideOptions.options[ideChoice];
             if (!!mappedImage && mappedImage.image) {
@@ -539,14 +547,18 @@ export class WorkspaceStarter {
                 // For now, this feature requires special permissions.
                 configuration.ideImage = ideChoice;
             }
+            configuration.latestWarning = shouldDisplayLatestWarning(
+                ideChoice,
+                user.additionalData?.ideSettings?.defaultDesktopIde,
+                useLatest,
+            );
         }
 
-        const useLatest = !!user.additionalData?.ideSettings?.useLatestVersion;
         const referrerIde = this.resolveReferrerIDE(workspace, user, ideConfig);
         if (referrerIde) {
-            configuration.desktopIdeImage = useLatest
-                ? referrerIde.option.latestImage ?? referrerIde.option.image
-                : referrerIde.option.image;
+            const refUseLatest = useLatest && referrerIde.option.latestImage != null;
+            configuration.desktopIdeImage = refUseLatest ? referrerIde.option.latestImage : referrerIde.option.image;
+            configuration.latestWarning = shouldDisplayLatestWarning(undefined, referrerIde.id, refUseLatest);
             if (!user.additionalData?.ideSettings) {
                 // A user does not have IDE settings configured yet configure it with a referrer ide as default.
                 const additionalData = user?.additionalData || {};

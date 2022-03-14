@@ -6,6 +6,7 @@
 
 import { useEffect } from "react";
 import gitpodIconUA from "../icons/gitpod-ua.svg";
+import { gitpodHostUrl } from "../service/service";
 
 export enum StartPhase {
     Checking = 0,
@@ -47,7 +48,7 @@ function getPhaseTitle(phase?: StartPhase, error?: StartWorkspaceError) {
 function ProgressBar(props: { phase: number; error: boolean }) {
     const { phase, error } = props;
     return (
-        <div className="flex mt-4 mb-6">
+        <div className="flex justify-center">
             {[1, 2, 3].map((i) => {
                 let classes = "h-2 w-10 mx-1 my-2 rounded-full";
                 if (i < phase) {
@@ -74,6 +75,7 @@ export interface StartPageProps {
     error?: StartWorkspaceError;
     title?: string;
     children?: React.ReactNode;
+    latestWarning?: boolean;
 }
 
 export interface StartWorkspaceError {
@@ -85,6 +87,15 @@ export interface StartWorkspaceError {
 export function StartPage(props: StartPageProps) {
     const { phase, error } = props;
     let title = props.title || getPhaseTitle(phase, error);
+    const warningMessage = props.latestWarning && (
+        <div className="text-center text-sm w-72 text-orange-400">
+            LATEST IDE WARNING PLACEHOLDER, CLICK
+            <a className="hover:text-blue-600 dark:hover:text-blue-400" href={gitpodHostUrl.asPreferences().toString()}>
+                &nbsp;HERE&nbsp;
+            </a>
+            TO CHANGE YOUR IDE
+        </div>
+    );
     useEffect(() => {
         document.title = "Starting — Gitpod";
     }, []);
@@ -100,9 +111,13 @@ export function StartPage(props: StartPageProps) {
                     }`}
                 />
                 <h3 className="mt-8 text-xl">{title}</h3>
-                {typeof phase === "number" && phase < StartPhase.IdeReady && (
-                    <ProgressBar phase={phase} error={!!error} />
-                )}
+                <div className="space-y-6 mb-6 mt-4">
+                    {typeof phase === "number" && phase < StartPhase.IdeReady && (
+                        <ProgressBar phase={phase} error={!!error} />
+                    )}
+                    {warningMessage}
+                </div>
+
                 {error && <StartError error={error} />}
                 {props.children}
             </div>

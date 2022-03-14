@@ -650,9 +650,9 @@ export default class StartWorkspace extends React.Component<StartWorkspaceProps,
                 );
                 break;
         }
-
+        const latestWarning = this.state.workspaceInstance?.configuration?.latestWarning;
         return (
-            <StartPage phase={phase} error={error} title={title}>
+            <StartPage phase={phase} error={error} title={title} latestWarning={latestWarning}>
                 {statusMessage}
             </StartPage>
         );

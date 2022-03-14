@@ -217,6 +217,9 @@ export interface WorkspaceInstanceConfiguration {
 
     // supervisorImage is the ref of the supervisor image this instance uses.
     supervisorImage?: string;
+
+    // display warning for latest IDE versions on the loading screen.
+    latestWarning?: boolean;
 }
 
 /**
