@@ -364,7 +364,49 @@ function formatDuration(milliseconds: number) {
     return (hours > 0 ? `${hours}:` : "") + moment(milliseconds).format("mm:ss");
 }
 
-export function PrebuildInstanceStatus(props: { prebuildInstance?: WorkspaceInstance }) {
+export function PrebuildStatus(props: { prebuild: PrebuildWithStatus }) {
+    const prebuild = props.prebuild;
+
+    let status = (
+        <div className="flex space-x-1 items-center">
+            {prebuildStatusIcon(prebuild)}
+            {prebuildStatusLabel(prebuild)}
+        </div>
+    );
+
+    let details;
+
+    switch (prebuild.status) {
+        case "queued":
+            details = (
+                <div className="flex space-x-1 items-center text-gray-400">
+                    <img alt="" className="h-4 w-4 animate-spin" src={Spinner} />
+                    <span>Prebuild is queued and will processed when there is execution capacity ...</span>
+                </div>
+            );
+            break;
+        case "building":
+            return <img alt="" className="h-4 w-4" src={StatusRunning} />;
+        case "aborted":
+            return <img alt="" className="h-4 w-4" src={StatusCanceled} />;
+        case "failed":
+            return <img alt="" className="h-4 w-4" src={StatusFailed} />;
+        case "timeout":
+            return <img alt="" className="h-4 w-4" src={StatusFailed} />;
+        case "available":
+            if (prebuild?.error) {
+                return <img alt="" className="h-4 w-4" src={StatusFailed} />;
+            }
+            return <img alt="" className="h-4 w-4" src={StatusDone} />;
+    }
+
+    <div className="flex flex-col space-y-1 justify-center text-sm font-semibold">
+        <div>{status}</div>
+        <div>{details}</div>
+    </div>;
+}
+
+export function PrebuildInstanceStatus(props: { prebuildInstance?: WorkspaceInstance; prebuild?: PrebuildWithStatus }) {
     let status = <></>;
     let details = <></>;
     switch (props.prebuildInstance?.status.phase) {
