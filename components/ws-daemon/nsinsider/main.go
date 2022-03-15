@@ -254,6 +254,121 @@ func main() {
 					return nil
 				},
 			},
+			{
+				Name:  "setup-veth-pair",
+				Usage: "hogehoge",
+				Flags: []cli.Flag{
+					&cli.IntFlag{
+						Name:     "target-pid",
+						Required: true,
+					},
+					&cli.StringFlag{
+						Name:     "name",
+						Required: true,
+					},
+				},
+				Action: func(c *cli.Context) error {
+					name := c.String("name")
+					vethIf := fmt.Sprintf("veth-%s", name)
+					cethIf := fmt.Sprintf("ceth-%s", name)
+					netns := fmt.Sprintf("netns-%s", name)
+
+					cmd := exec.Command("ip", "link", "add", vethIf, "type", "veth", "peer", "name", cethIf)
+					out, err := cmd.CombinedOutput()
+					if err != nil {
+						return xerrors.Errorf("create a veth pair (%v) failed: %q\n%v",
+							cmd.Args,
+							string(out),
+							err,
+						)
+					}
+
+					path := "/var/run/netns"
+					if err := os.MkdirAll(path, 0755); err != nil {
+						return err
+					}
+					if err := os.Symlink(fmt.Sprintf("/proc/%d/net", c.Int("target-pid")), filepath.Join(path, netns)); err != nil {
+						return err
+					}
+
+					cmd = exec.Command("ip", "addr", "add", "10.0.5.1/24", "dev", vethIf)
+					out, err = cmd.CombinedOutput()
+					if err != nil {
+						return xerrors.Errorf("assign IP address to the vethIf (%v) failed: %q\n%v",
+							cmd.Args,
+							string(out),
+							err,
+						)
+					}
+
+					cmd = exec.Command("ip", "netns", "exec", netns, "ip", "addr", "add", "10.0.5.2/24", "dev", cethIf)
+					out, err = cmd.CombinedOutput()
+					if err != nil {
+						return xerrors.Errorf("assign IP address to the cethIf (%v) failed: %q\n%v",
+							cmd.Args,
+							string(out),
+							err,
+						)
+					}
+
+					cmd = exec.Command("ip", "link", "set", vethIf, "up")
+					if err != nil {
+						return xerrors.Errorf("bring up the vethIf (%v) failed: %q\n%v",
+							cmd.Args,
+							string(out),
+							err,
+						)
+					}
+
+					cmd = exec.Command("ip", "netns", "exec", netns, "ip", "link", "set", cethIf, "up")
+					if err != nil {
+						return xerrors.Errorf("bring up the cethIf (%v) failed: %q\n%v",
+							cmd.Args,
+							string(out),
+							err,
+						)
+					}
+
+					// TOOD(toru): using library instead of cmd
+					cmd = exec.Command("iptables", "-A", "FORWARD", "-o", "eth0", "-i", vethIf, "-j", "ACCEPT")
+					if err != nil {
+						return xerrors.Errorf("add a forwarding rule for iptable: vethIf -> eth0 (%v) failed: %q\n%v",
+							cmd.Args,
+							string(out),
+							err,
+						)
+					}
+
+					cmd = exec.Command("iptables", "-A", "FORWARD", "-i", "eth0", "-o", vethIf, "-j", "ACCEPT")
+					if err != nil {
+						return xerrors.Errorf("add a forwarding rule for iptable: eth0 -> vethIf (%v) failed: %q\n%v",
+							cmd.Args,
+							string(out),
+							err,
+						)
+					}
+
+					cmd = exec.Command("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "10.0.5.0/24", "-o", "eth0", "-j", "MASQUERADE")
+					if err != nil {
+						return xerrors.Errorf("add a nat rule for iptable (%v) failed: %q\n%v",
+							cmd.Args,
+							string(out),
+							err,
+						)
+					}
+
+					// cmd = exec.Command("ip", "netns", "exec", netns, "ip", "route", "replace", "default", "via", "10.0.5.1")
+					// if err != nil {
+					// 	return xerrors.Errorf("change up a default (%v) failed: %q\n%v",
+					// 		cmd.Args,
+					// 		string(out),
+					// 		err,
+					// 	)
+					// }
+
+					return nil
+				},
+			},
 		},
 	}
 
