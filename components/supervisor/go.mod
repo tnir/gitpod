@@ -27,7 +27,7 @@ require (
 	github.com/spf13/cobra v1.2.1
 	golang.org/x/crypto v0.0.0-20210817164053-32db794688a5
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	golang.org/x/sys v0.0.0-20220114195835-da31bd327af9
+	golang.org/x/sys v0.1.0
 	golang.org/x/term v0.0.0-20210615171337-6886f2dfbf5b
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1
 	google.golang.org/grpc v1.45.0
