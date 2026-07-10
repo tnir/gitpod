@@ -1,8 +1,6 @@
 module github.com/gitpod-io/local-app
 
-go 1.24.0
-
-toolchain go1.24.13
+go 1.25.0
 
 godebug tlsmlkem=0
 
@@ -21,7 +19,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/zalando/go-keyring v0.1.1
-	golang.org/x/crypto v0.46.0
+	golang.org/x/crypto v0.52.0
 	golang.org/x/oauth2 v0.34.0
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2
 	google.golang.org/grpc v1.79.3
@@ -89,9 +87,9 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
-	golang.org/x/net v0.48.0 // indirect
-	golang.org/x/sys v0.39.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
+	golang.org/x/net v0.54.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
 )
